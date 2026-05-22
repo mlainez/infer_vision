@@ -1,15 +1,21 @@
 defmodule InferVision.YOLO do
   @moduledoc """
-  YOLO object detection via the ONNX bridge + the existing
-  `InferVision.Detection` NMS helpers.
+  YOLO object detection — generic over ONNX backend AND decoder.
 
-  Works with any YOLO export that follows the v5/v8 convention of
-  emitting a single `(1, n_boxes, 5 + n_classes)` tensor where each
-  row is `[cx, cy, w, h, obj_conf, class_0, ..., class_K]`. v8/v9
-  exports use `(1, 4 + n_classes, n_boxes)` — pass `:layout, :v8`
-  to handle that variant.
+  Two axes of extensibility:
 
-      {:ok, model} = InferVision.YOLO.load("/root/yolov8n.onnx")
+    * **Backend** — set `:backend` to choose the ONNX runtime
+      (`ArmAI.VisionBackend` for tract-onnx, `OrtexVision.Backend`
+      for ONNX Runtime). Configured via `InferVision.Backend`.
+    * **Decoder** — set `:decoder` to handle different YOLO output
+      layouts. Built-in: `InferVision.YOLO.Decoders.V5` (v5/v7)
+      and `InferVision.YOLO.Decoders.V8` (v8/v9/v11/YOLOX-style
+      channels-first). Custom-trained models can implement the
+      `InferVision.YOLO.Decoder` behaviour and slot in here.
+
+  ## Example
+
+      {:ok, model} = InferVision.YOLO.load("/data/yolov5n.onnx")  # default decoder: V5
       image = InferVision.Preprocess.load_for_classifier("/data/cat.jpg",
                 size: {640, 640},
                 mean: {0.0, 0.0, 0.0},
@@ -19,20 +25,43 @@ defmodule InferVision.YOLO do
                      iou_threshold: 0.45,
                      score_threshold: 0.25)
       # detections = [%{box: {x1, y1, x2, y2}, class: 16, score: 0.91}, ...]
+
+  For YOLOv8 / v11:
+
+      {:ok, model} = InferVision.YOLO.load("/data/yolov8n.onnx",
+                       decoder: InferVision.YOLO.Decoders.V8)
   """
 
-  defstruct [:onnx, :input_name, :input_shape, :layout]
+  defstruct [:onnx, :input_name, :input_shape, :decoder]
 
-  @doc "Load a YOLO ONNX file. `layout` is `:v5` (default) or `:v8`."
+  @doc """
+  Load a YOLO ONNX file.
+
+  ## Options
+
+    * `:decoder` — module implementing `InferVision.YOLO.Decoder`.
+      Default `InferVision.YOLO.Decoders.V5`. Accepts the legacy
+      `layout: :v5 | :v8` shortcut for back-compat.
+    * `:input_shape` — `{height, width}` of the model's input.
+      Default `{640, 640}`.
+    * `:backend` — override the `InferVision.Backend` for this load.
+  """
   @spec load(Path.t(), keyword()) :: {:ok, %__MODULE__{}} | {:error, term()}
   def load(path, opts \\ []) do
-    layout = Keyword.get(opts, :layout, :v5)
+    decoder = resolve_decoder(opts)
     input_shape = Keyword.get(opts, :input_shape, {640, 640})
 
-    case InferVision.Onnx.load(path) do
+    case InferVision.Onnx.load(path, opts) do
       {:ok, model} ->
         input_name = List.first(model.input_names) || "images"
-        {:ok, %__MODULE__{onnx: model, input_name: input_name, input_shape: input_shape, layout: layout}}
+
+        {:ok,
+         %__MODULE__{
+           onnx: model,
+           input_name: input_name,
+           input_shape: input_shape,
+           decoder: decoder
+         }}
 
       err ->
         err
@@ -40,21 +69,20 @@ defmodule InferVision.YOLO do
   end
 
   @doc """
-  Run detection. `image` is a preprocessed `{1, 3, H, W}` tensor
-  (use `InferVision.Preprocess.load_for_classifier/2` to build it).
+  Run detection. `image` is a preprocessed `{1, 3, H, W}` (or `{3, H, W}`)
+  tensor — use `InferVision.Preprocess.load_for_classifier/2` to build it.
 
-  Returns a list of `%{box: {x1, y1, x2, y2}, class: integer, score: float}`,
-  with box coordinates in the input image's pixel space (0..H/W).
+  Returns a list of
+  `%{box: {x1, y1, x2, y2}, class: integer, score: float}`.
   """
   @spec detect(%__MODULE__{}, Nx.Tensor.t(), keyword()) :: [
           %{box: {float(), float(), float(), float()}, class: non_neg_integer(), score: float()}
         ]
-  def detect(%__MODULE__{onnx: onnx, input_name: in_name, layout: layout}, image, opts \\ []) do
+  def detect(%__MODULE__{onnx: onnx, input_name: in_name, decoder: decoder}, image, opts \\ []) do
     iou_threshold = Keyword.get(opts, :iou_threshold, 0.45)
     score_threshold = Keyword.get(opts, :score_threshold, 0.25)
     max_output = Keyword.get(opts, :max_output, 100)
 
-    # Ensure batch dim.
     image =
       case Nx.shape(image) do
         {_n, _c, _h, _w} -> image
@@ -62,77 +90,44 @@ defmodule InferVision.YOLO do
       end
 
     outputs = InferVision.Onnx.run(onnx, %{in_name => image})
-    {_, raw} = Enum.at(outputs, 0)
 
-    boxes_scores = decode(raw, layout)
+    {boxes, scores, classes} = decoder.decode(outputs, opts)
 
-    case boxes_scores do
-      {boxes, scores, classes} ->
-        kept =
-          InferVision.Detection.nms(boxes, scores,
-            iou_threshold: iou_threshold,
-            score_threshold: score_threshold,
-            max_output: max_output
-          )
+    kept =
+      InferVision.Detection.nms(boxes, scores,
+        iou_threshold: iou_threshold,
+        score_threshold: score_threshold,
+        max_output: max_output
+      )
 
-        boxes_list = Nx.to_list(boxes)
-        scores_list = Nx.to_flat_list(scores)
-        classes_list = Nx.to_flat_list(classes)
+    boxes_list = Nx.to_list(boxes)
+    scores_list = Nx.to_flat_list(scores)
+    classes_list = Nx.to_flat_list(classes)
 
-        for idx <- kept do
-          [x1, y1, x2, y2] = Enum.at(boxes_list, idx)
-          %{
-            box: {x1 * 1.0, y1 * 1.0, x2 * 1.0, y2 * 1.0},
-            class: Enum.at(classes_list, idx),
-            score: Enum.at(scores_list, idx)
-          }
-        end
+    for idx <- kept do
+      [x1, y1, x2, y2] = Enum.at(boxes_list, idx)
+
+      %{
+        box: {x1 * 1.0, y1 * 1.0, x2 * 1.0, y2 * 1.0},
+        class: Enum.at(classes_list, idx),
+        score: Enum.at(scores_list, idx)
+      }
     end
   end
 
-  # YOLOv5: (1, n_boxes, 5 + n_classes) with [cx, cy, w, h, obj, cls...]
-  defp decode(raw, :v5) do
-    {1, n, channels} = Nx.shape(raw)
-    flat = Nx.reshape(raw, {n, channels})
+  # Back-compat: accept the old `layout: :v5 | :v8` shortcut, but
+  # `decoder:` is the new canonical option.
+  defp resolve_decoder(opts) do
+    case Keyword.get(opts, :decoder) do
+      nil ->
+        case Keyword.get(opts, :layout, :v5) do
+          :v5 -> InferVision.YOLO.Decoders.V5
+          :v8 -> InferVision.YOLO.Decoders.V8
+          other -> raise ArgumentError, "unknown YOLO layout: #{inspect(other)}. Use `decoder: SomeModule` for custom layouts."
+        end
 
-    boxes_xywh = Nx.slice(flat, [0, 0], [n, 4])
-    obj = Nx.slice(flat, [0, 4], [n, 1]) |> Nx.reshape({n})
-    class_probs = Nx.slice(flat, [0, 5], [n, channels - 5])
-
-    classes = Nx.argmax(class_probs, axis: -1)
-    max_class = Nx.reduce_max(class_probs, axes: [-1])
-
-    scores = Nx.multiply(obj, max_class)
-    boxes_xyxy = xywh_to_xyxy(boxes_xywh)
-    {boxes_xyxy, scores, classes}
-  end
-
-  # YOLOv8: (1, 4 + n_classes, n_boxes) — channels-first.
-  defp decode(raw, :v8) do
-    {1, channels, n} = Nx.shape(raw)
-    flat = Nx.reshape(raw, {channels, n}) |> Nx.transpose(axes: [1, 0])
-
-    boxes_xywh = Nx.slice(flat, [0, 0], [n, 4])
-    class_probs = Nx.slice(flat, [0, 4], [n, channels - 4])
-
-    classes = Nx.argmax(class_probs, axis: -1)
-    scores = Nx.reduce_max(class_probs, axes: [-1])
-
-    boxes_xyxy = xywh_to_xyxy(boxes_xywh)
-    {boxes_xyxy, scores, classes}
-  end
-
-  defp xywh_to_xyxy(boxes_xywh) do
-    cx = Nx.slice(boxes_xywh, [0, 0], [Nx.axis_size(boxes_xywh, 0), 1])
-    cy = Nx.slice(boxes_xywh, [0, 1], [Nx.axis_size(boxes_xywh, 0), 1])
-    w = Nx.slice(boxes_xywh, [0, 2], [Nx.axis_size(boxes_xywh, 0), 1])
-    h = Nx.slice(boxes_xywh, [0, 3], [Nx.axis_size(boxes_xywh, 0), 1])
-
-    x1 = Nx.subtract(cx, Nx.divide(w, 2))
-    y1 = Nx.subtract(cy, Nx.divide(h, 2))
-    x2 = Nx.add(cx, Nx.divide(w, 2))
-    y2 = Nx.add(cy, Nx.divide(h, 2))
-
-    Nx.concatenate([x1, y1, x2, y2], axis: 1)
+      mod when is_atom(mod) ->
+        mod
+    end
   end
 end

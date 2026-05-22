@@ -3,39 +3,56 @@ defmodule InferVision.YOLOTest do
 
   describe "load/2" do
     test "returns a struct error tuple for a missing file" do
-      # Whether or not the onnx feature is compiled in, loading a path
-      # that does not exist must surface as an error tuple (never raise).
       assert {:error, _} = InferVision.YOLO.load("/tmp/__nx_arm_no_such_yolo.onnx")
     end
 
-    test "default layout is :v5" do
-      # Stub by going through Models.Onnx — when the feature is
-      # disabled, both Onnx and YOLO load return error tuples without
-      # crashing. We verify the YOLO wrapper doesn't lose options on
-      # the error path.
+    test "default decoder is V5 (legacy `layout: :v5` shortcut works)" do
       result = InferVision.YOLO.load("/tmp/__missing.onnx")
       assert match?({:error, _}, result)
     end
 
-    test "passing layout: :v8 is accepted (no crash on the option)" do
-      # If the underlying file is missing we still want the option to
-      # round-trip cleanly through the load function.
+    test "passing legacy `layout: :v8` shortcut is accepted" do
       assert {:error, _} = InferVision.YOLO.load("/tmp/__missing.onnx", layout: :v8)
+    end
+
+    test "passing `decoder:` module is accepted" do
+      assert {:error, _} =
+               InferVision.YOLO.load("/tmp/__missing.onnx",
+                 decoder: InferVision.YOLO.Decoders.V8
+               )
+    end
+
+    test "unknown legacy layout raises ArgumentError" do
+      assert_raise ArgumentError, ~r/unknown YOLO layout/, fn ->
+        InferVision.YOLO.load("/tmp/__missing.onnx", layout: :v99)
+      end
     end
   end
 
   describe "struct shape" do
-    test "wraps an :onnx field, an :input_name, and a :layout" do
+    test "wraps :onnx, :input_name, :input_shape, :decoder" do
       yolo = %InferVision.YOLO{
         onnx: nil,
         input_name: "images",
         input_shape: {640, 640},
-        layout: :v5
+        decoder: InferVision.YOLO.Decoders.V5
       }
 
-      assert yolo.layout == :v5
+      assert yolo.decoder == InferVision.YOLO.Decoders.V5
       assert yolo.input_shape == {640, 640}
       assert yolo.input_name == "images"
+    end
+  end
+
+  describe "Decoder behaviour" do
+    test "V5 decoder is defined" do
+      assert Code.ensure_loaded?(InferVision.YOLO.Decoders.V5)
+      assert function_exported?(InferVision.YOLO.Decoders.V5, :decode, 2)
+    end
+
+    test "V8 decoder is defined" do
+      assert Code.ensure_loaded?(InferVision.YOLO.Decoders.V8)
+      assert function_exported?(InferVision.YOLO.Decoders.V8, :decode, 2)
     end
   end
 end
