@@ -1,19 +1,19 @@
-defmodule ArmVision.MixProject do
+defmodule InferVision.MixProject do
   use Mix.Project
 
   @version "0.1.0"
 
   def project do
     [
-      app: :arm_vision,
+      app: :infer_vision,
       version: @version,
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      name: "ArmVision",
+      name: "Vision",
       description:
-        "Nx-tensor vision model wrappers + preprocessing on ARM CPUs (YOLO / OCR / Face / generic ONNX / Stable Diffusion via tract-onnx)",
+        "Generic Nx-tensor vision model wrappers (YOLO / OCR / Face / generic ONNX) with a pluggable native backend (see `InferVision.Backend`).",
       package: package(),
       docs: [main: "readme", extras: ["README.md"]]
     ]
@@ -26,21 +26,21 @@ defmodule ArmVision.MixProject do
 
   defp deps do
     [
-      {:rustler, "~> 0.36", optional: true},
-      {:rustler_precompiled, "~> 0.8"},
       {:nx, "~> 0.9"},
-      {:arm_ai, path: "../arm_ai"},
-      {:nx_arm, path: "../nx_arm"},
-      {:arm_nx_primitives, path: "../arm_nx_primitives"}
+      {:nx_primitives, path: "../nx_primitives"},
+      {:arm_ai, path: "../arm_ai", only: [:dev, :test]},
+      {:nx_arm, path: "../nx_arm", only: [:dev, :test]},
+      {:rustler, "~> 0.36", optional: true},
+      {:rustler_precompiled, "~> 0.8"}
     ]
   end
 
   defp package do
     [
-      name: :arm_vision,
+      name: :infer_vision,
       licenses: ["Apache-2.0"],
       files: ~w(lib mix.exs README.md),
-      links: %{"GitHub" => "https://github.com/marclainez/arm_vision"}
+      links: %{"GitHub" => "https://github.com/marclainez/infer_vision"}
     ]
   end
 end

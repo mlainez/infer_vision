@@ -1,4 +1,4 @@
-defmodule ArmVision.DwPwFusionTest do
+defmodule InferVision.DwPwFusionTest do
   use ExUnit.Case, async: true
 
   # Reference: depthwise then activation then pointwise, all via Nx.

@@ -1,4 +1,4 @@
-defmodule ArmVision.VisionTest do
+defmodule InferVision.VisionTest do
   use ExUnit.Case, async: true
 
   @fixture_png Path.expand("support/tiny.png", __DIR__)
@@ -6,7 +6,7 @@ defmodule ArmVision.VisionTest do
 
   describe "decode_to_rgb8/1" do
     test "decodes a PNG to {bytes, w, h}" do
-      {bytes, w, h} = ArmVision.Preprocess.decode_to_rgb8(@fixture_png)
+      {:ok, {bytes, w, h}} = InferVision.Preprocess.decode_to_rgb8(@fixture_png)
       assert is_binary(bytes)
       assert w == 8
       assert h == 8
@@ -15,7 +15,7 @@ defmodule ArmVision.VisionTest do
     end
 
     test "decodes a JPEG to {bytes, w, h}" do
-      {bytes, w, h} = ArmVision.Preprocess.decode_to_rgb8(@fixture_jpg)
+      {:ok, {bytes, w, h}} = InferVision.Preprocess.decode_to_rgb8(@fixture_jpg)
       assert is_binary(bytes)
       assert w == 8
       assert h == 8
@@ -26,7 +26,7 @@ defmodule ArmVision.VisionTest do
   describe "load_for_classifier/2 — shape contract" do
     test "nchw layout produces {3, h, w} f32 tensor" do
       t =
-        ArmVision.Preprocess.load_for_classifier(@fixture_png,
+        InferVision.Preprocess.load_for_classifier(@fixture_png,
           size: {32, 32},
           layout: :nchw,
           mean: {0.0, 0.0, 0.0},
@@ -39,7 +39,7 @@ defmodule ArmVision.VisionTest do
 
     test "nhwc layout produces {h, w, 3}" do
       t =
-        ArmVision.Preprocess.load_for_classifier(@fixture_jpg,
+        InferVision.Preprocess.load_for_classifier(@fixture_jpg,
           size: {16, 16},
           layout: :nhwc,
           mean: {0.0, 0.0, 0.0},
@@ -54,7 +54,7 @@ defmodule ArmVision.VisionTest do
       # With mean=0, std=1, pixel value 128 (mid-grey) → 128/255 ≈ 0.502.
       # With mean=0.5, std=0.5, that same pixel → (0.502 - 0.5) / 0.5 ≈ 0.004 — close to 0.
       t_id =
-        ArmVision.Preprocess.load_for_classifier(@fixture_png,
+        InferVision.Preprocess.load_for_classifier(@fixture_png,
           size: {8, 8},
           layout: :nchw,
           mean: {0.0, 0.0, 0.0},
@@ -62,7 +62,7 @@ defmodule ArmVision.VisionTest do
         )
 
       t_norm =
-        ArmVision.Preprocess.load_for_classifier(@fixture_png,
+        InferVision.Preprocess.load_for_classifier(@fixture_png,
           size: {8, 8},
           layout: :nchw,
           mean: {0.5, 0.5, 0.5},
@@ -83,14 +83,14 @@ defmodule ArmVision.VisionTest do
 
     test "raises ArgumentError when :size is missing" do
       assert_raise KeyError, fn ->
-        ArmVision.Preprocess.load_for_classifier(@fixture_png, [])
+        InferVision.Preprocess.load_for_classifier(@fixture_png, [])
       end
     end
   end
 
   describe "missing file" do
     test "decode_to_rgb8 returns {:error, _} on a missing path" do
-      assert {:error, msg} = ArmVision.Preprocess.decode_to_rgb8("/tmp/__no_such_image.png")
+      assert {:error, msg} = InferVision.Preprocess.decode_to_rgb8("/tmp/__no_such_image.png")
       assert is_binary(msg)
       assert msg =~ "No such file"
     end

@@ -28,7 +28,7 @@ IO.puts("Loading YOLOv5n...")
 
 IO.puts("Preprocessing image...")
 input =
-  ArmAI.Vision.load_for_classifier(image_path,
+  InferVision.Preprocess.load_for_classifier(image_path,
     size: {640, 640},
     layout: :nchw,
     # YOLO expects 0-1 normalised RGB (no ImageNet mean/std).

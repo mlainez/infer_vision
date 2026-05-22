@@ -1,4 +1,4 @@
-defmodule ArmVision.Im2colConvTest do
+defmodule InferVision.Im2colConvTest do
   use ExUnit.Case, async: true
 
   defp ref_conv(input, weight, bias, strides, padding) do

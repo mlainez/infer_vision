@@ -1,4 +1,4 @@
-defmodule ArmVision.DepthwiseConvTest do
+defmodule InferVision.DepthwiseConvTest do
   @moduledoc """
   Depthwise convolution correctness vs Nx.BinaryBackend.
   In Nx parlance, depthwise = `feature_group_size == Cin`.

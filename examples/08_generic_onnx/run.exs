@@ -26,7 +26,7 @@ IO.puts("  outputs: #{inspect(ArmAI.Onnx.output_specs(model))}")
 
 IO.puts("Preprocessing image...")
 input =
-  ArmAI.Vision.load_for_classifier(image_path,
+  InferVision.Preprocess.load_for_classifier(image_path,
     size: {224, 224},
     layout: :nchw,
     # ImageNet normalisation (MobileNetV2 expects this).
@@ -40,7 +40,7 @@ IO.puts("Running forward pass...")
 # Softmax → top-5.
 probs = Nx.divide(Nx.exp(Nx.subtract(logits, Nx.reduce_max(logits))),
                   Nx.sum(Nx.exp(Nx.subtract(logits, Nx.reduce_max(logits)))))
-top5_idx = ArmAI.Embeddings.top_k(Nx.squeeze(probs), 5) |> Nx.to_flat_list()
+top5_idx = NxPrimitives.Embeddings.top_k(Nx.squeeze(probs), 5) |> Nx.to_flat_list()
 
 IO.puts("")
 IO.puts("Forward pass: #{div(us, 1000)} ms")

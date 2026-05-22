@@ -1,4 +1,4 @@
-defmodule ArmVision.WinogradTest do
+defmodule InferVision.WinogradTest do
   use ExUnit.Case, async: true
 
   # Reference: Nx.conv with NHWC inputs, NHWC outputs, kernel
