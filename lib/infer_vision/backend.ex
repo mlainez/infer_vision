@@ -11,7 +11,7 @@ defmodule InferVision.Backend do
 
   ## Configuring the active backend
 
-      config :vision, backend: ArmAI.VisionBackend
+      config :infer_vision, backend: ArmAI.VisionBackend
 
   Override per-call with `backend:` on any `Vision.*` function.
   """
@@ -52,7 +52,7 @@ defmodule InferVision.Backend do
         raise """
         No Vision backend configured. Add one to your config:
 
-            config :vision, backend: ArmAI.VisionBackend
+            config :infer_vision, backend: ArmAI.VisionBackend
 
         Or pass `backend:` explicitly to the Vision.* call.
         """
