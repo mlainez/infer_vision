@@ -9,7 +9,7 @@ defmodule InferVision.YOLO.Decoders.V5 do
   @behaviour InferVision.YOLO.Decoder
 
   @impl true
-  def decode(outputs, _opts) do
+  def decode(outputs, opts) do
     raw =
       outputs
       |> Map.values()
@@ -18,15 +18,33 @@ defmodule InferVision.YOLO.Decoders.V5 do
     {1, n, channels} = Nx.shape(raw)
     flat = Nx.reshape(raw, {n, channels})
 
-    boxes_xywh = Nx.slice(flat, [0, 0], [n, 4])
-    obj = Nx.slice(flat, [0, 4], [n, 1]) |> Nx.reshape({n})
-    class_probs = Nx.slice(flat, [0, 5], [n, channels - 5])
+    # score = obj * max_class <= obj, so rows whose objectness is below
+    # the score threshold can never be kept. Dropping them first turns a
+    # 25200-row argmax into a few dozen rows.
+    threshold = Keyword.get(opts, :score_threshold, 0.0)
+    obj = flat |> Nx.slice([0, 4], [n, 1]) |> Nx.reshape({n})
+
+    obj_list = Nx.to_flat_list(obj)
+
+    keep =
+      obj_list
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {o, i} -> if o >= threshold, do: [i], else: [] end)
+
+    # Nx has no empty tensors: keep the best row, which NMS's score
+    # threshold then drops.
+    keep = if keep == [], do: [Nx.to_number(Nx.argmax(obj))], else: keep
+
+    rows = Nx.take(flat, Nx.tensor(keep), axis: 0)
+    m = length(keep)
+
+    boxes_xywh = Nx.slice(rows, [0, 0], [m, 4])
+    obj = rows |> Nx.slice([0, 4], [m, 1]) |> Nx.reshape({m})
+    class_probs = Nx.slice(rows, [0, 5], [m, channels - 5])
 
     classes = Nx.argmax(class_probs, axis: -1)
     max_class = Nx.reduce_max(class_probs, axes: [-1])
 
-    scores = Nx.multiply(obj, max_class)
-    boxes_xyxy = InferVision.YOLO.Boxes.xywh_to_xyxy(boxes_xywh)
-    {boxes_xyxy, scores, classes}
+    {InferVision.YOLO.Boxes.xywh_to_xyxy(boxes_xywh), Nx.multiply(obj, max_class), classes}
   end
 end

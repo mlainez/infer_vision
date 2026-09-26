@@ -5,8 +5,8 @@ defmodule InferVision.YOLO do
   Two axes of extensibility:
 
     * **Backend** — set `:backend` to choose the ONNX runtime
-      (`ArmAI.VisionBackend` for tract-onnx, `OrtexVision.Backend`
-      for ONNX Runtime). Configured via `InferVision.Backend`.
+      (`ArmAI.VisionBackend` for tract-onnx). Configured via
+      `InferVision.Backend`.
     * **Decoder** — set `:decoder` to handle different YOLO output
       layouts. Built-in: `InferVision.YOLO.Decoders.V5` (v5/v7)
       and `InferVision.YOLO.Decoders.V8` (v8/v9/v11/YOLOX-style
@@ -75,9 +75,9 @@ defmodule InferVision.YOLO do
   Returns a list of
   `%{box: {x1, y1, x2, y2}, class: integer, score: float}`.
   """
-  @spec detect(%__MODULE__{}, Nx.Tensor.t(), keyword()) :: [
-          %{box: {float(), float(), float(), float()}, class: non_neg_integer(), score: float()}
-        ]
+  @spec detect(%__MODULE__{}, Nx.Tensor.t(), keyword()) ::
+          [%{box: {float(), float(), float(), float()}, class: non_neg_integer(), score: float()}]
+          | {:error, term()}
   def detect(%__MODULE__{onnx: onnx, input_name: in_name, decoder: decoder}, image, opts \\ []) do
     iou_threshold = Keyword.get(opts, :iou_threshold, 0.45)
     score_threshold = Keyword.get(opts, :score_threshold, 0.25)
@@ -89,9 +89,14 @@ defmodule InferVision.YOLO do
         {c, h, w} -> Nx.reshape(image, {1, c, h, w})
       end
 
-    outputs = InferVision.Onnx.run(onnx, %{in_name => image})
+    case InferVision.Onnx.run(onnx, %{in_name => image}) do
+      {:error, _} = err -> err
+      outputs -> decode_and_filter(outputs, decoder, opts, iou_threshold, score_threshold, max_output)
+    end
+  end
 
-    {boxes, scores, classes} = decoder.decode(outputs, opts)
+  defp decode_and_filter(outputs, decoder, opts, iou_threshold, score_threshold, max_output) do
+    {boxes, scores, classes} = decoder.decode(outputs, Keyword.put(opts, :score_threshold, score_threshold))
 
     kept =
       InferVision.Detection.nms(boxes, scores,
