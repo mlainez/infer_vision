@@ -5,10 +5,7 @@
 > This package was written for the **Goatmire Elixir workshop** on running
 > Nerves on Fairphone 3 hardware. It exists for tinkering and teaching.
 >
-> It is **not an actively maintained project** (yet). There are no
-> stability guarantees, APIs will change without notice, and parts of it
-> are wired-but-unproven. Treat it as a starting point to hack on, not as
-> a dependency to build a product on.
+> There are no stability guarantees and APIs will change without notice.
 >
 > See [`nerves_ai`](https://github.com/mlainez/nerves_ai) for the full
 > stack and the workshop context.
@@ -24,13 +21,10 @@ decoding sit behind the `InferVision.Backend` behaviour.
 | Module | What it does |
 |---|---|
 | `InferVision.YOLO` | Object detection, v5 and v8 output layouts |
-| `InferVision.Onnx` | Generic ONNX inference — load a model, run tensors through it |
+| `InferVision.Onnx` | Generic ONNX inference for models with float inputs |
 | `InferVision.Preprocess` | JPEG/PNG decode + classifier preprocessing |
-| `InferVision.Image` | Resize, normalise, tensor image helpers |
-| `InferVision.Detection` | NMS, IoU, box decoding |
-| `InferVision.OCR` | Two-stage OCR pipeline glue |
-| `InferVision.Face` | Face detection + recognition pipeline glue |
-| `InferVision.StableDiffusion` | Diffusion wiring — demo-only on phone-class ARM |
+| `InferVision.Image` | Resize and normalise raw RGB buffers (needs `arm_ai` + `nx_arm`) |
+| `InferVision.Detection` | NMS, IoU, box-format conversion |
 
 ## Install
 
@@ -72,39 +66,44 @@ detections = InferVision.YOLO.detect(yolo, input,
 ```
 
 Pick the output decoder with `decoder: InferVision.YOLO.Decoders.V5`
-(the default) or `.V8`. The legacy `layout: :v5 | :v8` shortcut still
-works.
+(the default, for YOLOv5/v7) or `.V8` (YOLOv8/v11). The legacy
+`layout: :v5 | :v8` shortcut still works. The V8 decode step does more
+tensor work; set `Nx.global_default_backend(NxArm.Backend)` to keep it
+fast.
+
+Both decoders are tested against real models: Ultralytics' YOLOv5n
+export (half precision, run in f32) and a YOLOv8n export.
 
 ### Generic ONNX
 
 ```elixir
 {:ok, model} = InferVision.Onnx.load("/data/models/whatever.onnx")
-output = InferVision.Onnx.run(model, %{"input" => tensor})
+outputs = InferVision.Onnx.run(model, %{"input" => tensor})
 ```
+
+With `ArmAI.VisionBackend` (tract-onnx), inputs must be float tensors.
+Models that take integer inputs, such as token ids for text encoders,
+return `{:error, {:unsupported_input_type, name, type}}`. Outputs are
+always f32.
 
 ## Choosing a YOLO model
 
 YOLOv5n is the recommended starting point: the official Ultralytics
-release ships at **opset 17** with `Resize`, so it loads into
-`tract-onnx` with no conversion step. It's also ~3× smaller than v8
-(3.8 MB) and a bit faster on CPU. Expect roughly **1 s per 640×640 image**
-on a Cortex-A73.
+release loads into tract with no conversion step, is about 3× smaller
+than v8n (3.9 MB), and detects in about 0.4 s per 640×640 image on a
+desktop x86 CPU. It hasn't been timed on the phone with the current code.
+Older exports that use the deprecated `Upsample` op don't load; re-export
+them at opset 11 or newer.
 
-## Caveats
+## Example
 
-**`InferVision.Detection.decode_yolov5/3` is an unimplemented stub** —
-it raises. Use `InferVision.YOLO.Decoders.V5` via `YOLO.detect/3`
-instead; `Detection`'s `nms/3`, `iou/2` and `decode_xywh_to_xyxy/1` are
-real and used by that path.
+`examples/yolo_detection/run.exs` runs YOLOv5n on an image and prints
+the detections with COCO labels.
 
-**`OCR` and `Face` are pipeline glue, not models.** They give you the
-load/detect/recognize plumbing around an ONNX pair; you supply the
-models and their pre/post-processing. Neither has been validated
-end-to-end on device.
+## Toolchain
 
-**`StableDiffusion` is not interactive.** Diffusion on a Cortex-A73 takes
-*minutes* per image even at 256×256. It's wired for the "generate while
-the user is away" case. For interactive latency, run it on a host.
+Built and tested with Erlang/OTP 29.1.1 and Elixir 1.20.4, matching the
+official Nerves systems (see `.tool-versions`).
 
 ## License
 

@@ -3,10 +3,13 @@ defmodule InferVision.Image do
   Image preprocessing for vision models.
 
   This module covers the "raw RGB u8 buffer → normalised f32 NHWC
-  tensor" pipeline. Decoding JPEG/PNG to a raw RGB buffer is the
-  caller's responsibility — on Nerves that typically comes from a
-  camera library (`fp3_camera`, GStreamer) or from `stb_image` if a
-  pure-Elixir JPEG decoder is needed.
+  tensor" pipeline, for frames that are already in memory (for example
+  from a camera). It calls the `arm_ai` NIF and returns `NxArm.Backend`
+  tensors, so both packages must be in your deps.
+
+  For image files, `InferVision.Preprocess.load_for_classifier/2` does
+  decode, resize and normalisation in one call, and
+  `InferVision.Preprocess.decode_to_rgb8/2` returns the raw buffer.
 
   ## Standard ViT/ImageNet pipeline
 
