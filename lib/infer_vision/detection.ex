@@ -1,7 +1,7 @@
 defmodule InferVision.Detection do
   @moduledoc """
-  Object-detection post-processing helpers: non-max suppression and
-  anchor-box decoding. These are the building blocks every YOLO /
+  Object-detection post-processing helpers: non-max suppression, IoU and
+  box-format conversion. These are the building blocks every YOLO /
   SSD / RetinaNet variant uses after the convolutional head.
 
   Everything in here works on Nx tensors but does the actual loops
@@ -96,11 +96,10 @@ defmodule InferVision.Detection do
   YOLO heads typically emit the cx/cy/w/h form.
   """
   def decode_xywh_to_xyxy(boxes_xywh) do
-    cpu = Nx.backend_copy(boxes_xywh, Nx.BinaryBackend)
-    cx = Nx.slice_along_axis(cpu, 0, 1, axis: -1)
-    cy = Nx.slice_along_axis(cpu, 1, 1, axis: -1)
-    w = Nx.slice_along_axis(cpu, 2, 1, axis: -1)
-    h = Nx.slice_along_axis(cpu, 3, 1, axis: -1)
+    cx = Nx.slice_along_axis(boxes_xywh, 0, 1, axis: -1)
+    cy = Nx.slice_along_axis(boxes_xywh, 1, 1, axis: -1)
+    w = Nx.slice_along_axis(boxes_xywh, 2, 1, axis: -1)
+    h = Nx.slice_along_axis(boxes_xywh, 3, 1, axis: -1)
 
     half_w = Nx.divide(w, 2.0)
     half_h = Nx.divide(h, 2.0)
@@ -111,30 +110,5 @@ defmodule InferVision.Detection do
     y2 = Nx.add(cy, half_h)
 
     Nx.concatenate([x1, y1, x2, y2], axis: -1)
-    |> Nx.backend_copy(NxArm.Backend)
-  end
-
-  @doc """
-  Decode YOLOv5-style anchor predictions to absolute `[cx, cy, w, h]`
-  in input-image pixel coordinates.
-
-  Inputs:
-    * `pred` — `{N, 4}` raw model outputs `[tx, ty, tw, th]`.
-    * `anchors` — `{N, 4}` corresponding anchor centres + sizes
-      `[ax, ay, aw, ah]` in input-image pixels.
-    * `:stride` — feature-map stride relative to input image.
-
-  Decoded:
-      cx = (sigmoid(tx) * 2 - 0.5 + grid_x) * stride
-      cy = (sigmoid(ty) * 2 - 0.5 + grid_y) * stride
-      w  = (sigmoid(tw) * 2)^2 * anchor_w
-      h  = (sigmoid(th) * 2)^2 * anchor_h
-
-  This module provides the box-form decode; callers who need the
-  raw anchor-grid wiring can call `iou/2` + `nms/3` directly with
-  their own decoded boxes.
-  """
-  def decode_yolov5(_pred, _anchors, _opts \\ []) do
-    raise "decode_yolov5 needs a worked YOLOv5 pipeline to validate; provided as a stub for now."
   end
 end
