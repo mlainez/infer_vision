@@ -7,13 +7,13 @@ defmodule InferVision.MixProject do
     [
       app: :infer_vision,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      name: "Vision",
+      name: "InferVision",
       description:
-        "Generic Nx-tensor vision model wrappers (YOLO / OCR / Face / generic ONNX) with a pluggable native backend (see `InferVision.Backend`).",
+        "Generic Nx-tensor vision wrappers (YOLO detection, generic ONNX, image preprocessing) with a pluggable native backend (see `InferVision.Backend`).",
       package: package(),
       docs: [main: "readme", extras: ["README.md"]]
     ]
@@ -26,12 +26,11 @@ defmodule InferVision.MixProject do
 
   defp deps do
     [
-      {:nx, "~> 0.9"},
-      {:nx_primitives, github: "mlainez/nx_primitives"},
-      {:arm_ai, github: "mlainez/arm_ai", only: [:dev, :test]},
-      {:nx_arm, github: "mlainez/nx_arm", only: [:dev, :test]},
-      {:rustler, "~> 0.36", optional: true},
-      {:rustler_precompiled, "~> 0.8"}
+      {:nx, "~> 0.12.0"},
+      # Optional: InferVision.Image calls the arm_ai NIF and NxArm.Backend
+      # directly, and ArmAI.VisionBackend is the only backend today.
+      {:arm_ai, github: "mlainez/arm_ai", optional: true},
+      {:nx_arm, github: "mlainez/nx_arm", optional: true}
     ]
   end
 
